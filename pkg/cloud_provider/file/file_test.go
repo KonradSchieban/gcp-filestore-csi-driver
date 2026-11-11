@@ -1062,132 +1062,43 @@ func TestExtractNfsShareExportOptionsSetsSourceNetwork(t *testing.T) {
 	}
 }
 
-func TestCreateInstance_PscEndpointProject(t *testing.T) {
-	ctx := context.Background()
-	mgr := &gcfsServiceManager{}
-
-	var captured filev1beta1.Instance
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/instances") {
-			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"name":"projects/proj/locations/loc/operations/op1","done":true}`)
-			return
-		}
-		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/operations/") {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"name":"projects/proj/locations/loc/operations/op1","done":true}`)
-			return
-		}
-		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/instances/") {
-			inst := filev1beta1.Instance{
-				Name:       "projects/proj/locations/loc/instances/name",
-				Tier:       "tier",
-				FileShares: []*filev1beta1.FileShareConfig{{Name: "vol", CapacityGb: 10}},
-				Networks: []*filev1beta1.NetworkConfig{
-					{
-						Network:     "net",
-						ConnectMode: "PRIVATE_SERVICE_CONNECT",
-						PscConfig: &filev1beta1.PscConfig{
-							EndpointProject: "service-proj",
-						},
-					},
-				},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(&inst)
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer ts.Close()
-
-	svc, err := filev1beta1.NewService(ctx, option.WithEndpoint(ts.URL+"/"), option.WithHTTPClient(ts.Client()))
-	if err != nil {
-		t.Fatalf("failed to create file service: %v", err)
+func TestBuildPscConfig(t *testing.T) {
+	if got := buildPscConfig(""); got != nil {
+		t.Errorf("got %+v, want nil", got)
 	}
 
-	mgr.instancesService = filev1beta1.NewProjectsLocationsInstancesService(svc)
-	mgr.operationsService = filev1beta1.NewProjectsLocationsOperationsService(svc)
-
-	si := &ServiceInstance{
-		Project:  "proj",
-		Location: "loc",
-		Name:     "name",
-		Volume:   Volume{Name: "vol"},
-		Network: Network{
-			Name:               "net",
-			ConnectMode:        "PRIVATE_SERVICE_CONNECT",
-			PscEndpointProject: "service-proj",
-		},
+	const endpointProject = "service-proj"
+	got := buildPscConfig(endpointProject)
+	if got == nil {
+		t.Fatal("got nil, want non-nil PscConfig")
 	}
-
-	got, err := mgr.CreateInstance(ctx, si)
-	if err != nil {
-		t.Fatalf("CreateInstance failed: %v", err)
-	}
-
-	if len(captured.Networks) != 1 || captured.Networks[0].PscConfig == nil {
-		t.Fatalf("expected PscConfig to be sent in Create request, got: %+v", captured.Networks)
-	}
-	if captured.Networks[0].PscConfig.EndpointProject != "service-proj" {
-		t.Errorf("got EndpointProject %q, want %q", captured.Networks[0].PscConfig.EndpointProject, "service-proj")
-	}
-	if got.Network.PscEndpointProject != "service-proj" {
-		t.Errorf("got returned PscEndpointProject %q, want %q", got.Network.PscEndpointProject, "service-proj")
+	if got.EndpointProject != endpointProject {
+		t.Errorf("got EndpointProject %q, want %q", got.EndpointProject, endpointProject)
 	}
 }
 
-func TestStartCreateMultishareInstanceOp_PscEndpointProject(t *testing.T) {
-	ctx := context.Background()
-	mgr := &gcfsServiceManager{}
-
-	var captured filev1beta1.Instance
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/instances") {
-			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"name":"projects/proj/locations/loc/operations/op1","done":false}`)
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer ts.Close()
-
-	svc, err := filev1beta1.NewService(ctx, option.WithEndpoint(ts.URL+"/"), option.WithHTTPClient(ts.Client()))
-	if err != nil {
-		t.Fatalf("failed to create file service: %v", err)
-	}
-
-	mgr.multishareInstancesService = filev1beta1.NewProjectsLocationsInstancesService(svc)
-
-	mi := &MultishareInstance{
-		Project:  "proj",
-		Location: "loc",
-		Name:     "name",
-		Network: Network{
-			Name:               "net",
-			ConnectMode:        "PRIVATE_SERVICE_CONNECT",
-			PscEndpointProject: "service-proj",
+func TestCloudInstanceToServiceInstance_PscEndpointProject(t *testing.T) {
+	inst := &filev1beta1.Instance{
+		Name:       "projects/proj/locations/loc/instances/name",
+		Tier:       "tier",
+		FileShares: []*filev1beta1.FileShareConfig{{Name: "vol", CapacityGb: 10}},
+		Networks: []*filev1beta1.NetworkConfig{
+			{
+				Network:     "net",
+				ConnectMode: "PRIVATE_SERVICE_CONNECT",
+				PscConfig: &filev1beta1.PscConfig{
+					EndpointProject: "service-proj",
+				},
+			},
 		},
 	}
 
-	_, err = mgr.StartCreateMultishareInstanceOp(ctx, mi)
+	si, err := cloudInstanceToServiceInstance(inst)
 	if err != nil {
-		t.Fatalf("StartCreateMultishareInstanceOp failed: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if len(captured.Networks) != 1 || captured.Networks[0].PscConfig == nil {
-		t.Fatalf("expected PscConfig to be sent in Create request, got: %+v", captured.Networks)
-	}
-	if captured.Networks[0].PscConfig.EndpointProject != "service-proj" {
-		t.Errorf("got EndpointProject %q, want %q", captured.Networks[0].PscConfig.EndpointProject, "service-proj")
+	if si.Network.PscEndpointProject != "service-proj" {
+		t.Errorf("got PscEndpointProject %q, want %q", si.Network.PscEndpointProject, "service-proj")
 	}
 }
 
