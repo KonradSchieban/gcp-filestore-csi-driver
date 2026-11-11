@@ -616,6 +616,27 @@ func TestCreateVolume(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			name: "psc-endpoint-project without private service connect",
+			req: &csi.CreateVolumeRequest{
+				Name: testCSIVolume,
+				VolumeCapabilities: []*csi.VolumeCapability{
+					{
+						AccessType: &csi.VolumeCapability_Mount{
+							Mount: &csi.VolumeCapability_MountVolume{},
+						},
+						AccessMode: &csi.VolumeCapability_AccessMode{
+							Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+						},
+					},
+				},
+				Parameters: map[string]string{
+					ParamConnectMode:        privateServiceAccess,
+					ParamPscEndpointProject: "service-project",
+				},
+			},
+			expectErr: true,
+		},
+		{
 			name: "adding tags to filestore instance fails(failure scenario mocked)",
 			req: &csi.CreateVolumeRequest{
 				Name: testCSIVolume2,
@@ -2023,6 +2044,49 @@ func TestGenerateNewFileInstance(t *testing.T) {
 				Network: file.Network{
 					Name:        "foo-network",
 					ConnectMode: privateServiceConnect,
+				},
+				Volume: file.Volume{
+					Name:      newInstanceVolume,
+					SizeBytes: testBytes,
+				},
+				Protocol: v3FileProtocol,
+			},
+		},
+		{
+			name: "custom params, private service connect mode with psc-endpoint-project",
+			toporeq: &csi.TopologyRequirement{
+				Requisite: []*csi.Topology{
+					{
+						Segments: map[string]string{
+							TopologyKeyZone: "foo-location",
+						},
+					},
+				},
+				Preferred: []*csi.Topology{
+					{
+						Segments: map[string]string{
+							TopologyKeyZone: "foo-location",
+						},
+					},
+				},
+			},
+			params: map[string]string{
+				paramTier:                       "foo-tier",
+				paramNetwork:                    "foo-network",
+				ParamConnectMode:                privateServiceConnect,
+				ParamPscEndpointProject:         "foo-service-project",
+				"csiProvisionerSecretName":      "foo-secret",
+				"csiProvisionerSecretNamespace": "foo-namespace",
+			},
+			instance: &file.ServiceInstance{
+				Project:  testProject,
+				Name:     testCSIVolume,
+				Location: "foo-location",
+				Tier:     "foo-tier",
+				Network: file.Network{
+					Name:               "foo-network",
+					ConnectMode:        privateServiceConnect,
+					PscEndpointProject: "foo-service-project",
 				},
 				Volume: file.Volume{
 					Name:      newInstanceVolume,

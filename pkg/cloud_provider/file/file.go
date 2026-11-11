@@ -144,10 +144,11 @@ type Volume struct {
 }
 
 type Network struct {
-	Name            string
-	ConnectMode     string
-	ReservedIpRange string
-	Ip              string
+	Name               string
+	ConnectMode        string
+	ReservedIpRange    string
+	Ip                 string
+	PscEndpointProject string
 }
 
 type Backup struct {
@@ -304,6 +305,18 @@ func NewGCFSService(version string, client *http.Client, primaryFilestoreService
 }
 
 func (manager *gcfsServiceManager) CreateInstance(ctx context.Context, obj *ServiceInstance) (*ServiceInstance, error) {
+	networkConfig := &filev1beta1.NetworkConfig{
+		Network:         obj.Network.Name,
+		Modes:           []string{"MODE_IPV4"},
+		ReservedIpRange: obj.Network.ReservedIpRange,
+		ConnectMode:     obj.Network.ConnectMode,
+	}
+	if obj.Network.PscEndpointProject != "" {
+		networkConfig.PscConfig = &filev1beta1.PscConfig{
+			EndpointProject: obj.Network.PscEndpointProject,
+		}
+	}
+
 	instance := &filev1beta1.Instance{
 		Tier: obj.Tier,
 		FileShares: []*filev1beta1.FileShareConfig{
@@ -315,12 +328,7 @@ func (manager *gcfsServiceManager) CreateInstance(ctx context.Context, obj *Serv
 			},
 		},
 		Networks: []*filev1beta1.NetworkConfig{
-			{
-				Network:         obj.Network.Name,
-				Modes:           []string{"MODE_IPV4"},
-				ReservedIpRange: obj.Network.ReservedIpRange,
-				ConnectMode:     obj.Network.ConnectMode,
-			},
+			networkConfig,
 		},
 		KmsKeyName: obj.KmsKeyName,
 		Labels:     obj.Labels,
@@ -407,6 +415,10 @@ func cloudInstanceToServiceInstance(instance *filev1beta1.Instance) (*ServiceIns
 	if len(instance.Networks[0].IpAddresses) > 0 {
 		ip = instance.Networks[0].IpAddresses[0]
 	}
+	pscEndpointProject := ""
+	if instance.Networks[0].PscConfig != nil {
+		pscEndpointProject = instance.Networks[0].PscConfig.EndpointProject
+	}
 	// Map performance config if present
 	var perfCfg *PerformanceConfig
 	if instance.PerformanceConfig != nil {
@@ -430,10 +442,11 @@ func cloudInstanceToServiceInstance(instance *filev1beta1.Instance) (*ServiceIns
 			SizeBytes: util.GbToBytes(instance.FileShares[0].CapacityGb),
 		},
 		Network: Network{
-			Name:            instance.Networks[0].Network,
-			Ip:              ip,
-			ReservedIpRange: instance.Networks[0].ReservedIpRange,
-			ConnectMode:     instance.Networks[0].ConnectMode,
+			Name:               instance.Networks[0].Network,
+			Ip:                 ip,
+			ReservedIpRange:    instance.Networks[0].ReservedIpRange,
+			ConnectMode:        instance.Networks[0].ConnectMode,
+			PscEndpointProject: pscEndpointProject,
 		},
 		KmsKeyName:        instance.KmsKeyName,
 		Labels:            instance.Labels,
@@ -1096,16 +1109,23 @@ func (manager *gcfsServiceManager) ListMultishareInstances(ctx context.Context, 
 }
 
 func (manager *gcfsServiceManager) StartCreateMultishareInstanceOp(ctx context.Context, instance *MultishareInstance) (*filev1beta1multishare.Operation, error) {
+	networkConfig := &filev1beta1multishare.NetworkConfig{
+		Network:         instance.Network.Name,
+		Modes:           []string{"MODE_IPV4"},
+		ReservedIpRange: instance.Network.ReservedIpRange,
+		ConnectMode:     instance.Network.ConnectMode,
+	}
+	if instance.Network.PscEndpointProject != "" {
+		networkConfig.PscConfig = &filev1beta1multishare.PscConfig{
+			EndpointProject: instance.Network.PscEndpointProject,
+		}
+	}
+
 	targetinstance := &filev1beta1multishare.Instance{
 		MultiShareEnabled: true,
 		Tier:              instance.Tier,
 		Networks: []*filev1beta1multishare.NetworkConfig{
-			{
-				Network:         instance.Network.Name,
-				Modes:           []string{"MODE_IPV4"},
-				ReservedIpRange: instance.Network.ReservedIpRange,
-				ConnectMode:     instance.Network.ConnectMode,
-			},
+			networkConfig,
 		},
 		CapacityGb:    util.BytesToGb(instance.CapacityBytes),
 		KmsKeyName:    instance.KmsKeyName,
@@ -1372,16 +1392,21 @@ func cloudInstanceToMultishareInstance(instance *filev1beta1multishare.Instance)
 	if len(instance.Networks[0].IpAddresses) > 0 {
 		ip = instance.Networks[0].IpAddresses[0]
 	}
+	pscEndpointProject := ""
+	if instance.Networks[0].PscConfig != nil {
+		pscEndpointProject = instance.Networks[0].PscConfig.EndpointProject
+	}
 	return &MultishareInstance{
 		Project:  project,
 		Location: location,
 		Name:     name,
 		Tier:     instance.Tier,
 		Network: Network{
-			Name:            instance.Networks[0].Network,
-			Ip:              ip,
-			ReservedIpRange: instance.Networks[0].ReservedIpRange,
-			ConnectMode:     instance.Networks[0].ConnectMode,
+			Name:               instance.Networks[0].Network,
+			Ip:                 ip,
+			ReservedIpRange:    instance.Networks[0].ReservedIpRange,
+			ConnectMode:        instance.Networks[0].ConnectMode,
+			PscEndpointProject: pscEndpointProject,
 		},
 		KmsKeyName:         instance.KmsKeyName,
 		Labels:             instance.Labels,
