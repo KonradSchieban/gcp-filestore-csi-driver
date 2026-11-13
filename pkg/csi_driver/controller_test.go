@@ -616,6 +616,38 @@ func TestCreateVolume(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			name: "private service connect with psc-endpoint-project",
+			req: &csi.CreateVolumeRequest{
+				Name: testCSIVolume,
+				VolumeCapabilities: []*csi.VolumeCapability{
+					{
+						AccessType: &csi.VolumeCapability_Mount{
+							Mount: &csi.VolumeCapability_MountVolume{},
+						},
+						AccessMode: &csi.VolumeCapability_AccessMode{
+							Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+						},
+					},
+				},
+				Parameters: map[string]string{
+					ParamConnectMode:        privateServiceConnect,
+					ParamPscEndpointProject: "service-project",
+				},
+			},
+			resp: &csi.CreateVolumeResponse{
+				Volume: &csi.Volume{
+					CapacityBytes: 100 * util.Gb,
+					VolumeId:      testVolumeID,
+					VolumeContext: map[string]string{
+						attrIP:           testIP,
+						attrVolume:       newInstanceVolume,
+						attrFileProtocol: v3FileProtocol,
+					},
+				},
+			},
+			features: features,
+		},
+		{
 			name: "psc-endpoint-project without private service connect",
 			req: &csi.CreateVolumeRequest{
 				Name: testCSIVolume,
@@ -1010,6 +1042,16 @@ func TestCreateVolume(t *testing.T) {
 				if !reflect.DeepEqual(instance.NfsExportOptions[i], test.expectedOptions[i]) {
 					t.Errorf("test %q failed; nfs export options not equal at index %d: got %+v, expected %+v", test.name, i, instance.NfsExportOptions[i], test.expectedOptions[i])
 				}
+			}
+		}
+		if !test.expectErr && test.req.Parameters[ParamPscEndpointProject] != "" {
+			instance, err := cs.config.fileService.GetInstance(context.TODO(), &file.ServiceInstance{Name: test.req.Name})
+			if err != nil {
+				t.Errorf("test %q failed: couldn't get instance %v: %v", test.name, test.req.Name, err)
+				return
+			}
+			if instance.Network.PscEndpointProject != test.req.Parameters[ParamPscEndpointProject] {
+				t.Errorf("test %q failed: got psc endpoint project %q, expected %q", test.name, instance.Network.PscEndpointProject, test.req.Parameters[ParamPscEndpointProject])
 			}
 		}
 		if !test.expectErr && test.req.Parameters[ParamReservedIPV4CIDR] != "" {
